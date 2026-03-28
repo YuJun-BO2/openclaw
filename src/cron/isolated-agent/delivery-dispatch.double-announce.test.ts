@@ -283,7 +283,7 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     expect(deliverOutboundPayloads).toHaveBeenCalledTimes(1);
     expect(enqueueSystemEvent).toHaveBeenCalledWith("Morning briefing complete.", {
       sessionKey: "agent:main:main",
-      contextKey: "cron-direct-delivery:v1:run-123:telegram::123456:",
+      contextKey: `cron-direct-delivery:v1:run-123:${params.runStartedAt}:telegram::123456:`,
     });
   });
 
@@ -437,10 +437,42 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     expect(deliverOutboundPayloads).toHaveBeenCalledTimes(1);
   });
 
+  it("does not suppress delivery across different cron runs that reuse the same session id", async () => {
+    vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
+    vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
+    vi.mocked(deliverOutboundPayloads).mockResolvedValue([{ ok: true } as never]);
+
+    const firstParams = makeBaseParams({
+      synthesizedText: "Recurring LINE update.",
+      runSessionId: "shared-session-id",
+      sessionTarget: "session:agent:main:line:direct:u123",
+    });
+    firstParams.runStartedAt = 1_000;
+    firstParams.runEndedAt = 1_500;
+
+    const secondParams = makeBaseParams({
+      synthesizedText: "Recurring LINE update.",
+      runSessionId: "shared-session-id",
+      sessionTarget: "session:agent:main:line:direct:u123",
+    });
+    secondParams.runStartedAt = 2_000;
+    secondParams.runEndedAt = 2_500;
+
+    const first = await dispatchCronDelivery(firstParams);
+    const second = await dispatchCronDelivery(secondParams);
+
+    expect(first.delivered).toBe(true);
+    expect(second.delivered).toBe(true);
+    expect(deliverOutboundPayloads).toHaveBeenCalledTimes(2);
+  });
+
   it("does not cache partial bestEffort delivery replays as delivered", async () => {
     vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
-    vi.mocked(deliverOutboundPayloads).mockImplementation(async (params) => {
+    vi.mocked(deliverOutboundPayloads).mockImplementation(async (params: {
+      payloads?: unknown[];
+      onError?: (err: unknown, payload: unknown) => void;
+    }) => {
       const failedPayload = Array.isArray(params.payloads) ? params.payloads[0] : undefined;
       params.onError?.(new Error("payload failed"), failedPayload as never);
       return [{ ok: true } as never];
