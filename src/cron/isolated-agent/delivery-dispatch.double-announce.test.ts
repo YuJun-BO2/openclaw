@@ -441,20 +441,31 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     vi.mocked(countActiveDescendantRuns).mockReturnValue(0);
     vi.mocked(isLikelyInterimCronMessage).mockReturnValue(false);
     vi.mocked(deliverOutboundPayloads).mockResolvedValue([{ ok: true } as never]);
+    const lineRecipient = "U11111111111111111111111111111111";
 
     const firstParams = makeBaseParams({
       synthesizedText: "Recurring LINE update.",
       runSessionId: "shared-session-id",
-      sessionTarget: "session:agent:main:line:direct:u123",
+      sessionTarget: `session:agent:main:line:direct:${lineRecipient.toLowerCase()}`,
     });
+    firstParams.resolvedDelivery = {
+      ...firstParams.resolvedDelivery,
+      channel: "line",
+      to: lineRecipient,
+    };
     firstParams.runStartedAt = 1_000;
     firstParams.runEndedAt = 1_500;
 
     const secondParams = makeBaseParams({
       synthesizedText: "Recurring LINE update.",
       runSessionId: "shared-session-id",
-      sessionTarget: "session:agent:main:line:direct:u123",
+      sessionTarget: `session:agent:main:line:direct:${lineRecipient.toLowerCase()}`,
     });
+    secondParams.resolvedDelivery = {
+      ...secondParams.resolvedDelivery,
+      channel: "line",
+      to: lineRecipient,
+    };
     secondParams.runStartedAt = 2_000;
     secondParams.runEndedAt = 2_500;
 
@@ -464,6 +475,14 @@ describe("dispatchCronDelivery — double-announce guard", () => {
     expect(first.delivered).toBe(true);
     expect(second.delivered).toBe(true);
     expect(deliverOutboundPayloads).toHaveBeenCalledTimes(2);
+    expect(deliverOutboundPayloads).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ channel: "line", to: lineRecipient }),
+    );
+    expect(deliverOutboundPayloads).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ channel: "line", to: lineRecipient }),
+    );
   });
 
   it("does not cache partial bestEffort delivery replays as delivered", async () => {
