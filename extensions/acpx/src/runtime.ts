@@ -80,6 +80,7 @@ function formatPermissionModeGuidance(): string {
 function formatAcpxExitMessage(params: {
   stderr: string;
   exitCode: number | null | undefined;
+  signal?: NodeJS.Signals | null;
 }): string {
   const stderr = params.stderr.trim();
   if (params.exitCode === ACPX_EXIT_CODE_PERMISSION_DENIED) {
@@ -89,7 +90,13 @@ function formatAcpxExitMessage(params: {
       formatPermissionModeGuidance(),
     ].join(" ");
   }
-  return stderr || `acpx exited with code ${params.exitCode ?? "unknown"}`;
+  if (stderr) {
+    return stderr;
+  }
+  if (params.signal) {
+    return `acpx exited with signal ${params.signal}`;
+  }
+  return `acpx exited with code ${params.exitCode ?? "unknown"}`;
 }
 
 function summarizeLogText(text: string, maxChars = 240): string {
@@ -640,6 +647,7 @@ export class AcpxRuntime implements AcpRuntime {
           message: formatAcpxExitMessage({
             stderr,
             exitCode: exit.code,
+            signal: exit.signal,
           }),
         };
         return;
@@ -1005,6 +1013,7 @@ export class AcpxRuntime implements AcpRuntime {
         formatAcpxExitMessage({
           stderr: result.stderr,
           exitCode: result.code,
+          signal: result.signal,
         }),
       );
     }

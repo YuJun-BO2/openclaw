@@ -187,6 +187,32 @@ export type AcpDispatchAttemptResult = {
   counts: Record<ReplyDispatchKind, number>;
 };
 
+const ACP_STALE_BINDING_UNBIND_REASON = "acp-session-init-failed";
+
+async function maybeUnbindStaleBoundConversations(params: {
+  sessionKey: string;
+  error: { code: string; message: string };
+}): Promise<void> {
+  if (params.error.code !== "ACP_SESSION_INIT_FAILED") {
+    return;
+  }
+  try {
+    const removed = await getSessionBindingService().unbind({
+      targetSessionKey: params.sessionKey,
+      reason: ACP_STALE_BINDING_UNBIND_REASON,
+    });
+    if (removed.length > 0) {
+      logVerbose(
+        `dispatch-acp: removed ${removed.length} stale bound conversation(s) for ${params.sessionKey} after ${params.error.code}: ${params.error.message}`,
+      );
+    }
+  } catch (error) {
+    logVerbose(
+      `dispatch-acp: failed to unbind stale bound conversations for ${params.sessionKey}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function finalizeAcpTurnOutput(params: {
   cfg: OpenClawConfig;
   sessionKey: string;
@@ -350,6 +376,10 @@ export async function tryDispatchAcpReply(params: {
       throw dispatchPolicyError;
     }
     if (acpResolution.kind === "stale") {
+      await maybeUnbindStaleBoundConversations({
+        sessionKey,
+        error: acpResolution.error,
+      });
       throw acpResolution.error;
     }
     const agentPolicyError = resolveAcpAgentPolicyError(params.cfg, resolvedAcpAgent);
@@ -425,6 +455,10 @@ export async function tryDispatchAcpReply(params: {
       error: err,
       fallbackCode: "ACP_TURN_FAILED",
       fallbackMessage: "ACP turn failed before completion.",
+    });
+    await maybeUnbindStaleBoundConversations({
+      sessionKey,
+      error: acpError,
     });
     const delivered = await delivery.deliver("final", {
       text: formatAcpRuntimeErrorText(acpError),
